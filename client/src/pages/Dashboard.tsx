@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { calculateCycleInfo, formatDate } from "@/lib/cycleUtils";
+import { calculateCycleInfo, formatDate, getPhaseInfo } from "@/lib/cycleUtils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Cycle, Symptom } from "@shared/schema";
@@ -55,14 +55,17 @@ export default function Dashboard() {
     },
   });
 
-  const { data: insights, isLoading: insightsLoading } = useQuery<any>({
-    queryKey: ["/api/auth/user"],
-    select: (data) => data.insights,
-  });
-
+  // Get the latest cycle
   const latestCycle = cycles?.[0];
   const cycleLength = user?.avgCycleLength || 28;
-  const cycleInfo = insights;
+  
+  // Calculate cycle info using the utility function
+  const cycleInfo = latestCycle 
+    ? calculateCycleInfo(latestCycle.startDate, cycleLength)
+    : null;
+
+  // Get phase-specific information
+  const phaseInfo = cycleInfo ? getPhaseInfo(cycleInfo.phase) : null;
 
   const recentSymptoms = symptoms?.slice(0, 5) || [];
 
@@ -83,7 +86,7 @@ export default function Dashboard() {
     depression: "Low Mood",
   };
 
-  if (cyclesLoading || insightsLoading) {
+  if (cyclesLoading) {
     return (
       <div className="min-h-screen bg-background">
         <Navigation />
@@ -115,7 +118,7 @@ export default function Dashboard() {
             </h1>
             <p className="text-muted-foreground mt-1">
               {cycleInfo
-                ? `You're on day ${cycleInfo.currentDay} of your cycle`
+                ? `You're on day ${cycleInfo.currentDay} of your cycle (${cycleInfo.phase} phase)`
                 : "Start tracking your cycle to get personalized insights"}
             </p>
           </div>
@@ -128,42 +131,65 @@ export default function Dashboard() {
                     <div className="flex justify-between items-center mb-6">
                       <div>
                         <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-1">Current Phase</p>
-                        <h3 className="text-2xl font-bold text-primary">{cycleInfo?.phase || "—"}</h3>
-                        {cycleInfo?.showBufferDays && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            (Includes buffer days for your unique cycle)
-                          </p>
-                        )}
+                        <h3 className="text-2xl font-bold text-primary flex items-center gap-2">
+                          <span>{cycleInfo.phaseIcon}</span>
+                          <span className="capitalize">{cycleInfo.phase}</span>
+                        </h3>
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-1">Cycle Day</p>
                         <div className="flex items-baseline justify-end gap-1">
-                          <span className="text-3xl font-bold">{cycleInfo?.cycleDay || "—"}</span>
+                          <span className="text-3xl font-bold">{cycleInfo.currentDay}</span>
                           <span className="text-muted-foreground">/ {cycleLength}</span>
                         </div>
                       </div>
                     </div>
 
-                    {cycleInfo?.phases && (
-                      <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t">
-                        <div>
-                          <p className="text-xs font-medium text-muted-foreground uppercase">Uterine Phase</p>
-                          <p className="text-sm font-semibold">{cycleInfo.phases.monthlyCycle}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-muted-foreground uppercase">Ovarian Phase</p>
-                          <p className="text-sm font-semibold">{cycleInfo.phases.ovarianCycle}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-muted-foreground uppercase">Life Stage</p>
-                          <p className="text-sm font-semibold">{cycleInfo.phases.lifeStage}</p>
-                        </div>
-                        {cycleInfo.phases.pregnancyState !== 'none' && (
-                          <div>
-                            <p className="text-xs font-medium text-muted-foreground uppercase">Status</p>
-                            <p className="text-sm font-semibold capitalize">{cycleInfo.phases.pregnancyState}</p>
-                          </div>
-                        )}
+                    {/* Phase Description */}
+                    <div className="mt-4 p-4 bg-primary/5 rounded-lg">
+                      <p className="text-foreground">{cycleInfo.phaseDescription}</p>
+                    </div>
+
+                    {/* Phase Tips */}
+                    {phaseInfo && (
+                      <div className="mt-4">
+                        <h4 className="font-medium text-foreground mb-2">Wellness Tips for {cycleInfo.phase} Phase</h4>
+                        <ul className="space-y-2 text-sm">
+                          {phaseInfo.tips.map((tip, index) => (
+                            <li key={index} className="flex items-start gap-2">
+                              <span className="text-primary mt-1">•</span>
+                              <span>{tip}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Cycle Information */}
+                    <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t">
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground uppercase">Next Period</p>
+                        <p className="text-sm font-semibold">{formatDate(cycleInfo.nextPeriodDate)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground uppercase">Days Until Next Period</p>
+                        <p className="text-sm font-semibold">{cycleInfo.daysUntilNextPeriod} days</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground uppercase">Ovulation Day</p>
+                        <p className="text-sm font-semibold">Day {cycleInfo.ovulationDay}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground uppercase">PMS Window</p>
+                        <p className="text-sm font-semibold">Days {cycleInfo.pmsStartDay}-{cycleLength - 1}</p>
+                      </div>
+                    </div>
+
+                    {cycleInfo.isInPMS && (
+                      <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                        <p className="text-sm text-amber-700 dark:text-amber-400">
+                           You're in your PMS window. Be extra gentle with yourself.
+                        </p>
                       </div>
                     )}
                   </CardContent>
